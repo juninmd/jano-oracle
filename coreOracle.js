@@ -1,190 +1,127 @@
-var rmUtil = require('../../../helpers/requestMessageUtil.js');
-var oracledb = require('oracledb');
+const mu = require('./messageUtil');
 
-module.exports = function (connection) {
-    var modules = {};
-
-    modules.beginProcedure = function (rm, procedure, bindvars, cursorName, callback) {
-        beginProcedure(rm, procedure, bindvars, cursorName, callback);
-    };
-    modules.beginProcedureById = function (rm, procedure, bindvars, callback) {
-        beginProcedureById(rm, procedure, bindvars, callback);
-    };
-    modules.beginProcedureByIdNew = function (rm, options, bindvars, callback) {
-        beginProcedureByIdNew(rm, options, bindvars, callback);
-    };
-    modules.executeProcedure = function (rm, procedure, bindvars, resultParamter, callback) {
-        executeProcedure(rm, procedure, bindvars, resultParamter, callback);
-    };
-    modules.executeString = function (rm, query, callback) {
-        executeString(rm, query, callback);
-    };
-    conn = connection;
-    return modules;
-};
-
-var conn = "";
-/**
- * Método feito para executar algum SELECT
- */
-function beginProcedure(rm, procedure, bindvars, cursorName, callback) {
-    rm.content = [];
-    conn.execute(`BEGIN ${procedure}(${bindvars.ToParamtersOracle()}) ;END;`,
-        bindvars,
-        function (err, result) {
-            if (err) {
-                callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
-                return;
-            }
-            var metaData = result.outBinds[cursorName].metaData.map(e => e.name);
-            fetchRows(result.outBinds[cursorName], rm, function (err, result) {
-                if (err) {
-                    callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
-                    return;
-                }
-                callback(null, { metaData: metaData, content: result });
-                return;
-            });
-
-        });
-}
-
-function beginProcedureById(rm, procedure, bindvars, callback) {
-    conn.execute(`BEGIN ${procedure}(${bindvars.ToParamtersOracle()}) ;END;`,
-        bindvars,
-        function (err, result) {
-            if (err) {
-                callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
-                return;
-            }
-            var metaData = result.outBinds[bindvars.ToParamtersOracle().split(",")[0].replace(":", "").trim()].metaData.map(e => e.name);
-            result.outBinds[bindvars.ToParamtersOracle().split(",")[0].replace(":", "").trim()].getRow(
-                function (err, resposta) {
+module.exports = (connection) => {
+    return {
+        executeString: (rm, query) => {
+            return new Promise((resolve, reject) => {
+                connection.execute(query, (err, result) => {
                     if (err) {
-                        conn.release(function () {
-                            callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
+                        connection.release(() => {
+                            return reject(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
                         });
-                    } else if (!resposta) {
-                        conn.release(function () {
-                            callback(rmUtil.returnError(rm, 404, "O registro não foi encontrado.", ""), null);
+                    }
+                    else {
+                        connection.release(() => {
+                            if (result.rows.length == 0) {
+                                return resolve({ metaData: [], content: [] });
+                            }
+                            else {
+                                return resolve({ metaData: result, content: result.rows });
+                            }
                         });
-                    } else
-                        conn.release(function () {
-                            callback(null, { metaData: metaData, content: resposta });
-                        });
+                    }
                 });
-        });
-}
-
-function beginProcedureByIdNew(rm, options, bindvars, callback) {
-    conn.execute(`BEGIN ${options.procedure}(${bindvars.ToParamtersOracle()}) ;END;`,
-        bindvars,
-        function (err, result) {
-            if (err) {
-                callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
-                return;
-            }
-            var metaData = result.outBinds[bindvars.ToParamtersOracle().split(",")[0].replace(":", "").trim()].metaData.map(e => e.name);
-            result.outBinds[bindvars.ToParamtersOracle().split(",")[0].replace(":", "").trim()].getRow(
-                function (err, resposta) {
+            });
+        },
+        executeProcedure: (rm) => {
+            return new Promise((resolve, reject) => {
+                connection.execute(`BEGIN ${rm.database.procedure}(${rm.database.parametros.ToParamtersOracle()}) ;END;`, (err, result) => {
                     if (err) {
-                        conn.release(function () {
-                            callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
+                        connection.release(() => {
+                            return reject(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
                         });
-                    } else if (!resposta) {
-                        conn.release(function () {
-                            callback(rmUtil.returnError(rm, 404, "O registro não foi encontrado.", ""), null);
+                    }
+                    else {
+                        connection.commit(() => {
+                            connection.release(() => {
+                                if (result.affectedRows == 1) {
+                                    return resolve({ metaData: [], content: { retorno: 'OK', Id: result.insertId } });
+                                }
+                                else {
+                                    return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", "O registro não foi adicionado."));
+                                }
+                            });
                         });
-                    } else
-                        if (!options.close) {
-                            callback(null, { metaData: metaData, content: resposta });
+                    }
+                });
+            });
+        },
+        readProcedure: (rm) => {
+            return new Promise((resolve, reject) => {
+                connection.execute(`BEGIN ${rm.database.procedure}(${rm.database.parametros.ToParamtersOracle()}) ;END;`, rm.database.parametros, (err, result) => {
+                    if (err) {
+                        connection.release(() => {
+                            return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
+                        });
+                    }
+                    else {
+                        connection.release(() => {
+                            return resolve({ content: result[0] });
+                        });
+                    }
+                });
+            });
+        },
+        executeObject: (rm, table, object, ) => {
+            return new Promise((resolve, reject) => {
+                connection.execute(table, object, (err, info) => {
+                    if (err) {
+                        connection.release(() => {
+                            return reject(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
+                        });
+                    }
+                    else {
+                        connection.release(() => {
+                            if (info.affectedRows == 0) {
+                                return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", "Registro não foi inserido."));
+                            }
+                            else {
+                                return resolve({ metaData: [], content: info.insertId });
+                            }
+                        })
+                    }
+                });
+            });
+        },
+        executeTransaction: (rm, table, object) => {
+            return new Promise((resolve, reject) => {
+                connection.execute(table, object, (err, info) => {
+                    if (err) {
+                        return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
+                    }
+                    else {
+                        if (info.affectedRows == 0) {
+                            return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", "Registro não foi inserido."));
                         }
                         else {
-                            conn.release(function () {
-                                callback(null, { metaData: metaData, content: resposta });
-                            });
+                            return resolve({ metaData: [], content: info.insertId });
                         }
+                    }
                 });
-        });
-}
-
-function fetchRows(resultSet, requestMessage, callback) {
-    resultSet.getRow(
-        function (err, row) {
-            if (err) {
-                conn.release(function () {
-                    callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao obter os dados.", err.message), null);
-                });
-            } else if (!row) {
-                conn.commit(function () {
-                    conn.release(function () {
-                        callback(null, requestMessage.content);
-                    });
-                });
-            } else {
-                requestMessage.content.push(row);
-                fetchRows(resultSet, requestMessage, callback);
-            }
-        });
-}
-
-/**
- * 
- * resultParamter : P_RESULT ?
- */
-function executeProcedure(rm, procedure, bindvars, resultParamter, callback) {
-    conn.execute(`BEGIN ${procedure}(${bindvars.ToParamtersOracle()}) ;END;`,
-        bindvars,
-        function (err, result) {
-            if (err) {
-                conn.release(function () {
-                    callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao submeter os dados.", err.message), null);
-                });
-            }
-            else if (result.outBinds[resultParamter] !== null && result.outBinds[resultParamter].startsWith("ORA")) {
-                conn.release(function () {
-                    callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao submeter os dados.", result.outBinds[resultParamter]), null);
-                });
-            }
-            else {
-                conn.commit(function () {
-                    conn.release(function () {
-                        callback(null, { metaData: [], content: result.outBinds[resultParamter] });
-
-                    });
-                });
-            }
+            });
+        },
+        connection: () => {
+            return connection;
         }
-    );
-}
-
-function executeString(rm, query, callback) {
-    conn.execute(query,
-        [], {},
-        function (err, result) {
-            if (err) {
-                conn.release(function () {
-                    callback(rmUtil.returnError(rm, 500, "Ocorreu uma falha ao submeter os dados.", err.message), null);
-                });
-            }
-            else {
-                if (result.rows.length == 0) {
-                    conn.release(function () {
-                        callback(null, { metaData: [], content: [] });
-                        return;
-                    });
-                }
-
-                conn.release(function () {
-                    callback(null, { metaData: result.metaData, content: result.rows[0] });
-                });
-            }
-        }
-    );
-}
-
-
-
+    }
+};
 Object.prototype.ToParamtersOracle = function () {
     return Object.getOwnPropertyNames(this).map(x => `:${x} `).toString();
 };
+
+function fetchRows(connection, resultSet, rm, callback) {
+    resultSet.getRow((err, row) => {
+        if (err) {
+            connection.release(() => {
+                callback(mu.setError(rm, 500, "Ocorreu uma falha no banco de dados.", err.message), null);
+            });
+        } else if (!row) {
+            connection.release(() => {
+                callback(null, rm.content);
+            });
+        } else {
+            rm.content.push(row);
+            fetchRows(connection, resultSet, response, callback);
+        }
+    });
+}
