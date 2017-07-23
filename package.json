@@ -1,4 +1,25 @@
 {
+  "name": "jano-oracle",
+  "version": "0.0.1",
+  "description": "Library that uses the `oracle` driver to keep code clean, simple, organized and with Promises",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juninmd/jano-oracle.git"
+  },
+  "author": "Antonio Carlos",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/juninmd/jano-oracle/issues"
+  },
+  "keywords": [
+    "oracle",
+    "Promise"
+  ],
+  "homepage": "https://github.com/juninmd/jano-oracle#readme",
   "dependencies": {
     "oracledb": "^1.13.1"
   }

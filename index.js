@@ -1,5 +1,5 @@
 const mu = require('./messageUtil');
-const mysql = require('mysql');
+const oracle = require('oracledb');
 let CONNECTIONSTRING = {};
 module.exports = (connectionString) => {
     CONNECTIONSTRING = connectionString;
@@ -42,13 +42,17 @@ module.exports = (connectionString) => {
 }
 
 let OracleInit = () => {
-    let connection = mysql.createConnection(CONNECTIONSTRING);
-    connection.__proto__.endConnection = endConnection;
     return new Promise((resolve, reject) => {
-        return connection.connect((err) => {
-            return err ? reject(err) : resolve(connection);
-        });
-    });
+        let connection = {};
+        return oracle.getConnection(CONNECTIONSTRING)
+            .then(q => {
+                connection = q;
+                connection.__proto__.endConnection = endConnection;
+                return resolve(connection);
+            }).catch(err => {
+                return reject(err);
+            })
+    })
 }
 
 function endConnection(commit) {

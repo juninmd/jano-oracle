@@ -1,10 +1,11 @@
 const mu = require('./messageUtil');
+const oracle = require('oracledb');
 
 module.exports = (connection) => {
     return {
         executeString: (rm, query) => {
             return new Promise((resolve, reject) => {
-                connection.execute(query, (err, result) => {
+                connection.execute(query, [], { outFormat: oracle.OBJECT }, (err, result) => {
                     if (err) {
                         connection.release(() => {
                             return reject(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
@@ -16,7 +17,7 @@ module.exports = (connection) => {
                                 return resolve({ metaData: [], content: [] });
                             }
                             else {
-                                return resolve({ metaData: result, content: result.rows });
+                                return resolve({ metaData: result.metaData, outBinds: result.outBinds, resultSet: result.resultSet, content: result.rows });
                             }
                         });
                     }
@@ -34,7 +35,7 @@ module.exports = (connection) => {
                     else {
                         connection.commit(() => {
                             connection.release(() => {
-                                if (result.affectedRows == 1) {
+                                if (result.rowsAffected == 1) {
                                     return resolve({ metaData: [], content: { retorno: 'OK', Id: result.insertId } });
                                 }
                                 else {
@@ -62,9 +63,9 @@ module.exports = (connection) => {
                 });
             });
         },
-        executeObject: (rm, table, object, ) => {
+        executeObject: (rm, table, object) => {
             return new Promise((resolve, reject) => {
-                connection.execute(table, object, (err, info) => {
+                connection.execute(`${table} VALUES (${object.ToParamtersOracle()})`, object.ToValuesOracle(), (err, info) => {
                     if (err) {
                         connection.release(() => {
                             return reject(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
@@ -72,7 +73,7 @@ module.exports = (connection) => {
                     }
                     else {
                         connection.release(() => {
-                            if (info.affectedRows == 0) {
+                            if (info.rowsAffected == 0) {
                                 return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", "Registro não foi inserido."));
                             }
                             else {
@@ -90,7 +91,7 @@ module.exports = (connection) => {
                         return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", err.message));
                     }
                     else {
-                        if (info.affectedRows == 0) {
+                        if (info.rowsAffected == 0) {
                             return resolve(mu.setError(rm, 500, "Ocorreu um problema com essa operação, tente novamente.", "Registro não foi inserido."));
                         }
                         else {
@@ -107,6 +108,11 @@ module.exports = (connection) => {
 };
 Object.prototype.ToParamtersOracle = function () {
     return Object.getOwnPropertyNames(this).map(x => `:${x} `).toString();
+};
+
+Object.prototype.ToValuesOracle = function () {
+    let objeto = this;
+    return Object.getOwnPropertyNames(objeto).map(q => objeto[q]);
 };
 
 function fetchRows(connection, resultSet, rm, callback) {
